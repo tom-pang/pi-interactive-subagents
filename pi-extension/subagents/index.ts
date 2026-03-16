@@ -128,7 +128,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           content: [
             {
               type: "text",
-              text: "Error: cmux is not available. Set CMUX_SOCKET_PATH to use subagents.",
+              text: "Subagents require cmux. Start pi inside cmux (`cmux pi`) to use interactive subagents.",
             },
           ],
           details: { error: "cmux not available" },
@@ -513,7 +513,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params) {
       if (!isCmuxAvailable()) {
         return {
-          content: [{ type: "text", text: "cmux not available — title not set." }],
+          content: [{ type: "text", text: "cmux not available — start pi inside cmux (`cmux pi`) to set tab titles." }],
           details: { error: "cmux not available" },
         };
       }
@@ -617,7 +617,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
       if (!isCmuxAvailable()) {
         return {
-          content: [{ type: "text", text: "Error: cmux is not available. Set CMUX_SOCKET_PATH to use subagents." }],
+          content: [{ type: "text", text: "Subagents require cmux. Start pi inside cmux (`cmux pi`) to use interactive subagents." }],
           details: { error: "cmux not available" },
         };
       }
