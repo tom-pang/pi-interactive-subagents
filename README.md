@@ -3,7 +3,11 @@
 Async subagents for [pi](https://github.com/badlogic/pi-mono) — spawn, orchestrate, and manage sub-agent sessions in multiplexer panes. **Fully non-blocking** — the main agent keeps working while subagents run in the background.
 
 
-https://github.com/user-attachments/assets/c2dafe55-e4a6-4bcc-afac-273e3f05bdca
+
+
+https://github.com/user-attachments/assets/30adb156-cfb4-4c47-84ca-dd4aa80cba9f
+
+
 
 
 ## How It Works
