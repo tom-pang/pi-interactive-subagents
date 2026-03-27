@@ -360,7 +360,7 @@ async function launchSubagent(
     modelRegistry?: { getAvailable(): ModelInfo[] };
     model?: ModelInfo;
   },
-  options?: { surface?: string },
+  options?: { surface?: string; background?: boolean },
 ): Promise<RunningSubagent> {
   const startTime = Date.now();
   const id = Math.random().toString(16).slice(2, 10);
@@ -413,9 +413,11 @@ async function launchSubagent(
   const subagentSessionFile = join(sessionDir, `${timestamp}_${uuid}.jsonl`);
 
   // Use pre-created surface (parallel mode) or create a new one.
+  // Background mode creates windows in a hidden tmux session instead of the visible one.
   // For new surfaces, pause briefly so the shell is ready before sending the command.
+  const background = options?.background ?? false;
   const surfacePreCreated = !!options?.surface;
-  const surface = options?.surface ?? createSurface(params.name);
+  const surface = options?.surface ?? (background ? createBackgroundSurface(params.name) : createSurface(params.name));
   if (!surfacePreCreated) {
     await new Promise<void>((resolve) => setTimeout(resolve, 500));
   }
@@ -727,8 +729,12 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           };
         }
 
-        // Validate prerequisites
-        if (!isMuxAvailable()) {
+        // Background mode: default true (run in hidden tmux session to avoid cluttering
+        // the user's visible terminal). Falls back to foreground if tmux isn't available.
+        const useBackground = isBackgroundAvailable();
+
+        // Validate prerequisites — background mode only needs tmux binary, not a visible mux
+        if (!useBackground && !isMuxAvailable()) {
           return muxUnavailableResult("subagents");
         }
 
@@ -745,7 +751,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         // Launch the subagent (creates pane, sends command)
-        const running = await launchSubagent(params, ctx);
+        const running = await launchSubagent(params, ctx, { background: useBackground });
 
         // Create a separate AbortController for the watcher
         // (the tool's signal completes when we return)
@@ -1050,7 +1056,9 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         const name = params.name ?? "Resume";
         const startTime = Date.now();
 
-        if (!isMuxAvailable()) {
+        const useBackground = isBackgroundAvailable();
+
+        if (!useBackground && !isMuxAvailable()) {
           return muxUnavailableResult("subagents");
         }
 
@@ -1066,8 +1074,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         // Record entry count before resuming so we can extract new messages
         const entryCountBefore = getNewEntries(params.sessionPath, 0).length;
 
-        const surface = createSurface(name);
-        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        const surface = useBackground ? createBackgroundSurface(name) : createSurface(name);
+        if (!useBackground) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        }
 
         // Build pi resume command
         const parts = ["pi", "--session", shellEscape(params.sessionPath)];
