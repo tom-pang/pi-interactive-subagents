@@ -26,6 +26,16 @@ import {
   renameWorkspace,
 } from "./cmux.ts";
 import { getNewEntries, findLastAssistantMessage } from "./session.ts";
+import {
+  isBackgroundAvailable,
+  createBackgroundSurface,
+  startCleanupChecker,
+} from "./background.ts";
+import {
+  resolveModelForSubagent,
+  formatResolutionError,
+  type ModelInfo,
+} from "./model-resolver.ts";
 
 const SubagentParams = Type.Object({
   name: Type.String({ description: "Display name for the subagent" }),
@@ -39,7 +49,7 @@ const SubagentParams = Type.Object({
   systemPrompt: Type.Optional(
     Type.String({ description: "Appended to system prompt (role instructions)" }),
   ),
-  model: Type.Optional(Type.String({ description: "Model override (overrides agent default)" })),
+  model: Type.Optional(Type.String({ description: "Model override. Use 'provider/modelId' (e.g. 'anthropic/claude-sonnet-4-6', 'openai-codex/gpt-5.4') or a unique bare ID (e.g. 'claude-opus-4-6'). Ambiguous bare IDs like 'gpt-5.4' (exists in openai + openai-codex) require the provider prefix. Omit to inherit the current session model." })),
   skills: Type.Optional(
     Type.String({ description: "Comma-separated skills (overrides agent default)" }),
   ),
@@ -344,17 +354,46 @@ function startWidgetRefresh() {
  */
 async function launchSubagent(
   params: typeof SubagentParams.static,
-  ctx: { sessionManager: { getSessionFile(): string | null; getSessionId(): string }; cwd: string },
+  ctx: {
+    sessionManager: { getSessionFile(): string | null; getSessionId(): string };
+    cwd: string;
+    modelRegistry?: { getAvailable(): ModelInfo[] };
+    model?: ModelInfo;
+  },
   options?: { surface?: string },
 ): Promise<RunningSubagent> {
   const startTime = Date.now();
   const id = Math.random().toString(16).slice(2, 10);
 
   const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null;
-  const effectiveModel = params.model ?? agentDefs?.model;
+  const rawModelRef = params.model ?? agentDefs?.model;
   const effectiveTools = params.tools ?? agentDefs?.tools;
   const effectiveSkills = params.skills ?? agentDefs?.skills;
   const effectiveThinking = agentDefs?.thinking;
+
+  // Resolve model against available models in the registry.
+  // This prevents spawning subagents with unsupported/ambiguous model IDs.
+  const availableModels = ctx.modelRegistry?.getAvailable()?.map((m) => ({
+    provider: m.provider,
+    id: m.id,
+  })) ?? [];
+
+  const currentModel = ctx.model
+    ? { provider: ctx.model.provider, id: ctx.model.id }
+    : undefined;
+
+  const modelResolution = resolveModelForSubagent(rawModelRef, availableModels, currentModel);
+
+  if (modelResolution && !modelResolution.ok) {
+    throw new Error(`Model resolution failed: ${formatResolutionError(modelResolution)}`);
+  }
+
+  // Build the effective model string for --model flag
+  const resolvedModel = modelResolution?.ok ? modelResolution.model : null;
+  const resolvedThinkingSuffix = modelResolution?.ok ? modelResolution.thinkingSuffix : undefined;
+  // Thinking from resolution (inline :suffix) takes precedence, then agent frontmatter
+  const effectiveThinkingLevel = resolvedThinkingSuffix ?? effectiveThinking;
+  const effectiveModel = resolvedModel?.canonical ?? undefined;
 
   const sessionFile = ctx.sessionManager.getSessionFile();
   if (!sessionFile) throw new Error("No session file");
@@ -439,7 +478,7 @@ async function launchSubagent(
   parts.push("-e", shellEscape(subagentDonePath));
 
   if (effectiveModel) {
-    const model = effectiveThinking ? `${effectiveModel}:${effectiveThinking}` : effectiveModel;
+    const model = effectiveThinkingLevel ? `${effectiveModel}:${effectiveThinkingLevel}` : effectiveModel;
     parts.push("--model", shellEscape(model));
   }
 
@@ -618,6 +657,10 @@ async function watchSubagent(
 }
 
 export default function subagentsExtension(pi: ExtensionAPI) {
+  // Start the background session cleanup checker —
+  // finds and kills stale pi-bg-* sessions (>24h, dead parent, no active subagents)
+  startCleanupChecker();
+
   // Capture the UI context for widget updates
   pi.on("session_start", (_event, ctx) => {
     latestCtx = ctx;
@@ -662,6 +705,11 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         "You will NOT have results when this tool returns. Results are delivered later via a steer message. " +
         "Do NOT fabricate, assume, or summarize results after calling this tool. " +
         "Either wait for the steer message or move on to other work.",
+      promptGuidelines: [
+        "When spawning subagents, omit the `model` parameter to inherit the current session's model. " +
+        "If you must specify a model, use `provider/modelId` format (e.g. `anthropic/claude-sonnet-4-6`). " +
+        "Bare IDs like `gpt-5.4` will fail if they exist in multiple providers.",
+      ],
       parameters: SubagentParams,
 
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
