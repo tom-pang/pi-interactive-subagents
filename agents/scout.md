@@ -3,6 +3,7 @@ name: scout
 description: Fast codebase reconnaissance - gathers context without making changes
 tools: read, bash
 model: anthropic/claude-haiku-4-5
+lock-model: true
 output: context.md
 spawning: false
 auto-exit: true

@@ -72,6 +72,7 @@ const SubagentParams = Type.Object({
 
 interface AgentDefaults {
   model?: string;
+  lockModel?: boolean;
   tools?: string;
   skills?: string;
   thinking?: string;
@@ -132,8 +133,10 @@ function loadAgentDefaults(agentName: string): AgentDefaults | null {
     const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
     const spawningRaw = get("spawning");
     const autoExitRaw = get("auto-exit");
+    const lockModelRaw = get("lock-model");
     return {
       model: get("model"),
+      lockModel: lockModelRaw != null ? lockModelRaw === "true" : undefined,
       tools: get("tools"),
       skills: get("skill") ?? get("skills"),
       thinking: get("thinking"),
@@ -366,7 +369,8 @@ async function launchSubagent(
   const id = Math.random().toString(16).slice(2, 10);
 
   const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null;
-  const rawModelRef = params.model ?? agentDefs?.model;
+  // lock-model: true in agent frontmatter prevents callers from overriding the model
+  const rawModelRef = agentDefs?.lockModel ? agentDefs.model : (params.model ?? agentDefs?.model);
   const effectiveTools = params.tools ?? agentDefs?.tools;
   const effectiveSkills = params.skills ?? agentDefs?.skills;
   const effectiveThinking = agentDefs?.thinking;
