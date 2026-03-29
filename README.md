@@ -57,7 +57,6 @@ Optional: set `PI_SUBAGENT_MUX=cmux|tmux|zellij` to force a specific backend.
 | ----------------- | ------------------------------------------------------------------------------- |
 | `subagent`        | Spawn a sub-agent in a dedicated multiplexer pane (async — returns immediately) |
 | `subagents_list`  | List available agent definitions                                                |
-| `set_tab_title`   | Update tab/window title to show progress                                        |
 | `subagent_resume` | Resume a previous sub-agent session (async)                                     |
 
 | Command                    | Description                          |
@@ -267,7 +266,7 @@ Fine-grained control over individual extension tools:
 ```yaml
 ---
 name: focused-agent
-deny-tools: subagent, set_tab_title
+deny-tools: subagent
 ---
 ```
 
