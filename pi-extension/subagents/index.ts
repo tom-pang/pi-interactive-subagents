@@ -754,8 +754,46 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           };
         }
 
+        // Validate model before launching — fail fast with a clear error
+        // instead of silently failing in a background tmux session.
+        {
+          const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null;
+          const rawModelRef = agentDefs?.lockModel ? agentDefs.model : (params.model ?? agentDefs?.model);
+          if (rawModelRef !== undefined && rawModelRef !== null) {
+            const availableModels = ctx.modelRegistry?.getAvailable()?.map((m: any) => ({
+              provider: m.provider,
+              id: m.id,
+            })) ?? [];
+            const resolution = resolveModelForSubagent(rawModelRef, availableModels, undefined);
+            if (resolution && !resolution.ok) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Model validation failed: ${formatResolutionError(resolution)}`,
+                  },
+                ],
+                details: { error: "invalid model", model: rawModelRef },
+              };
+            }
+          }
+        }
+
         // Launch the subagent (creates pane, sends command)
-        const running = await launchSubagent(params, ctx, { background: useBackground });
+        let running: RunningSubagent;
+        try {
+          running = await launchSubagent(params, ctx, { background: useBackground });
+        } catch (err: any) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Failed to launch sub-agent "${params.name}": ${err?.message ?? String(err)}`,
+              },
+            ],
+            details: { error: err?.message ?? String(err) },
+          };
+        }
 
         // Create a separate AbortController for the watcher
         // (the tool's signal completes when we return)
