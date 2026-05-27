@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -12,6 +12,7 @@ import {
   appendBranchSummary,
   copySessionFile,
   mergeNewEntries,
+  findNewestSessionFile,
 } from "../pi-extension/subagents/session.ts";
 
 import { shellEscape, isCmuxAvailable } from "../pi-extension/subagents/cmux.ts";
@@ -224,6 +225,55 @@ describe("session.ts", () => {
       assert.notEqual(copy, file);
       assert.ok(copy.endsWith(".jsonl"));
       assert.equal(readFileSync(copy, "utf8"), readFileSync(file, "utf8"));
+    });
+  });
+
+  describe("findNewestSessionFile", () => {
+    it("returns the newest jsonl file in a session dir", () => {
+      const sessionsDir = join(dir, "discover-sessions");
+      mkdirSync(sessionsDir, { recursive: true });
+      const older = join(sessionsDir, "older.jsonl");
+      const newer = join(sessionsDir, "newer.jsonl");
+      writeFileSync(older, "{}\n");
+      writeFileSync(newer, "{}\n");
+
+      utimesSync(older, new Date(1_000), new Date(1_000));
+      utimesSync(newer, new Date(2_000), new Date(2_000));
+
+      assert.equal(findNewestSessionFile(sessionsDir), newer);
+    });
+
+    it("ignores excluded files and files older than the cutoff", () => {
+      const sessionsDir = join(dir, "discover-filtered");
+      mkdirSync(sessionsDir, { recursive: true });
+      const oldFile = join(sessionsDir, "old.jsonl");
+      const excluded = join(sessionsDir, "excluded.jsonl");
+      const winner = join(sessionsDir, "winner.jsonl");
+      writeFileSync(oldFile, "{}\n");
+      writeFileSync(excluded, "{}\n");
+      writeFileSync(winner, "{}\n");
+
+      utimesSync(oldFile, new Date(1_000), new Date(1_000));
+      utimesSync(excluded, new Date(3_000), new Date(3_000));
+      utimesSync(winner, new Date(4_000), new Date(4_000));
+
+      assert.equal(
+        findNewestSessionFile(sessionsDir, {
+          excludeFiles: [excluded],
+          createdAfterMs: 1_500,
+        }),
+        winner,
+      );
+    });
+
+    it("returns null when no candidate files match", () => {
+      const sessionsDir = join(dir, "discover-empty");
+      mkdirSync(sessionsDir, { recursive: true });
+      const stale = join(sessionsDir, "stale.jsonl");
+      writeFileSync(stale, "{}\n");
+      utimesSync(stale, new Date(1_000), new Date(1_000));
+
+      assert.equal(findNewestSessionFile(sessionsDir, { createdAfterMs: 5_000 }), null);
     });
   });
 

@@ -1,4 +1,4 @@
-import { readFileSync, appendFileSync, copyFileSync } from "node:fs";
+import { readFileSync, appendFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
@@ -121,4 +121,30 @@ export function mergeNewEntries(
   }
   return entries;
 }
-const unused = "hello";
+
+export function findNewestSessionFile(
+  sessionDir: string,
+  options?: { excludeFiles?: string[]; createdAfterMs?: number },
+): string | null {
+  const excluded = new Set(options?.excludeFiles ?? []);
+  let newestPath: string | null = null;
+  let newestMtime = -Infinity;
+
+  for (const entry of readdirSync(sessionDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const candidate = join(sessionDir, entry.name);
+    if (excluded.has(candidate)) continue;
+
+    const stat = statSync(candidate);
+    if (options?.createdAfterMs !== undefined && stat.mtimeMs < options.createdAfterMs) {
+      continue;
+    }
+
+    if (stat.mtimeMs > newestMtime) {
+      newestMtime = stat.mtimeMs;
+      newestPath = candidate;
+    }
+  }
+
+  return newestPath;
+}
